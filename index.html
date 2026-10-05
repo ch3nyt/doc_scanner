@@ -34,6 +34,7 @@
     --danger:#FF8A80; --stage:#0B0E11; --handle:#7BA0FF;
   }
   * { box-sizing:border-box; }
+  [hidden] { display:none !important; }  /* elements toggled with .hidden must win over their display rules */
   body { margin:0; background:var(--ground); color:var(--ink); font:15px/1.55 var(--tc); }
   button, select, input { font:inherit; color:inherit; }
   :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
