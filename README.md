@@ -1,4 +1,6 @@
-# PageFlat
+# Doc Scanner
+
+**線上使用 Try it：https://ch3nyt.github.io/doc_scanner/**
 
 把手機拍的文件拉正成掃描檔，或把照片原樣轉成 PDF；照片和既有 PDF 可以混著放，依你排的順序合併成一份 PDF。
 **所有處理都在你的瀏覽器裡完成，檔案不會上傳到任何伺服器。**
@@ -15,10 +17,10 @@ Flatten phone photos of documents into scan-like pages, or convert photos to PDF
 
 任選一種：
 
-1. **線上版**：打開 GitHub Pages 網址（若此 repo 已啟用 Pages，網址在右側 About 欄）。
+1. **線上版**：<https://ch3nyt.github.io/doc_scanner/>，手機、電腦都能用。
 2. **本機**：下載 `index.html`，用瀏覽器（Chrome、Edge、Safari、Firefox）直接開啟即可。
 
-第一次開啟會看到兩頁標示「範例」的假文件，用來示範操作；選擇自己的檔案後範例會自動清除。
+第一次開啟會看到兩頁標示「範例」的霍格華茲成績單照片（虛構內容），用來示範操作；選擇自己的檔案後範例會自動清除。
 
 ### 操作流程
 
@@ -94,6 +96,9 @@ Flatten phone photos of documents into scan-like pages, or convert photos to PDF
 ---
 
 ## 授權
+
+範例頁中的霍格華茲學院、課程名稱等出自《哈利波特》系列，相關權利屬 J.K. Rowling 與 Warner Bros.；本專案為非商業開源工具，與其無任何關聯。
+
 
 [MIT](LICENSE) © 2026 Yan-Ting Chen（陳彥廷）
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Flatten phone photos of documents and merge photos and PDFs into one PDF, entirely in the browser.">
-<title>PageFlat</title>
+<title>Doc Scanner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
@@ -141,7 +141,7 @@
 
 <div class="app">
   <header>
-    <h1>PageFlat</h1>
+    <h1>Doc Scanner</h1>
     <p>把手機拍的文件拉正成掃描檔，或照原樣轉成 PDF。照片和既有的 PDF 可以混著放，依順序合併成一份 PDF。檔案只在你的瀏覽器裡處理，不會上傳。</p>
   </header>
 
@@ -751,16 +751,16 @@ function drawSampleDoc(n) {
   const W = 850, H = 1100, c = canvas(W, H), x = c.getContext('2d');
   x.fillStyle = '#FAFAF7'; x.fillRect(0, 0, W, H);
   x.fillStyle = '#1A1A1A'; x.textAlign = 'center';
-  x.font = '700 30px "Noto Sans TC", sans-serif'; x.fillText('範例大學　歷年成績單', W / 2, 92);
-  x.font = '14px "IBM Plex Mono", monospace'; x.fillStyle = '#7A2E2E'; x.fillText('SAMPLE · 範例文件 · 非真實紀錄', W / 2, 124);
+  x.font = '700 28px "Noto Sans TC", sans-serif'; x.fillText(n === 1 ? '霍格華茲魔法與巫術學院　歷年成績單' : '普通巫術等級測驗（O.W.L.）成績單', W / 2, 92);
+  x.font = '14px "IBM Plex Mono", monospace'; x.fillStyle = '#7A2E2E'; x.fillText('SAMPLE · 範例文件 · 虛構內容', W / 2, 124);
   x.textAlign = 'left'; x.fillStyle = '#1A1A1A'; x.font = '16px "Noto Sans TC", sans-serif';
-  x.fillText('學號 B00000000　　姓名 範例同學　　學系 經濟學系', 70, 176);
+  x.fillText('學號 HW-1991-0901　　姓名 範例巫師　　學院 葛來分多', 70, 176);
   const rows = n === 1
-    ? [['個體經濟學', 3, 'A'], ['總體經濟學', 3, 'A-'], ['統計學', 4, 'A+'], ['微積分', 4, 'A'], ['計量經濟學', 3, 'A'], ['經濟數學', 3, 'B+'], ['賽局理論', 3, 'A'], ['程式設計', 3, 'A-'], ['線性代數', 3, 'A'], ['英文寫作', 2, 'A']]
-    : [['機器學習導論', 3, 'A'], ['資料結構', 3, 'A-'], ['行為經濟學', 3, 'A+'], ['實驗經濟學', 3, 'A'], ['產業組織', 3, 'A-'], ['財務經濟學', 3, 'B+'], ['公共經濟學', 3, 'A'], ['因果推論', 3, 'A'], ['演算法', 3, 'A-'], ['專題研究', 2, 'A+']];
+    ? [['魔藥學', '一', 'E'], ['變形學', '一', 'O'], ['魔咒學', '一', 'O'], ['黑魔法防禦術', '一', 'O'], ['藥草學', '一', 'E'], ['天文學', '一', 'A'], ['魔法史', '一', 'A'], ['飛行課', '一', 'O'], ['魔藥學', '二', 'E'], ['變形學', '二', 'E']]
+    : [['黑魔法防禦術', '五', 'O'], ['魔咒學', '五', 'O'], ['變形學', '五', 'E'], ['魔藥學', '五', 'E'], ['奇獸飼育學', '五', 'E'], ['藥草學', '五', 'E'], ['天文學', '五', 'A'], ['占卜學', '五', 'P'], ['魔法史', '五', 'D'], ['古代魔文研究', '五', 'O']];
   let y = 236;
   x.font = '600 15px "Noto Sans TC", sans-serif';
-  x.fillText('科目', 70, y); x.fillText('學分', 560, y); x.fillText('成績', 680, y);
+  x.fillText('科目', 70, y); x.fillText('年級', 560, y); x.fillText('成績', 680, y);
   x.strokeStyle = '#222'; x.lineWidth = 1.5; x.beginPath(); x.moveTo(60, y + 14); x.lineTo(W - 60, y + 14); x.stroke();
   x.font = '16px "Noto Sans TC", sans-serif'; x.lineWidth = 0.6; x.strokeStyle = '#B8B8B8';
   rows.forEach(([name, cr, g]) => {
@@ -768,6 +768,7 @@ function drawSampleDoc(n) {
     x.beginPath(); x.moveTo(60, y + 18); x.lineTo(W - 60, y + 18); x.stroke();
   });
   x.font = '14px "Noto Sans TC", sans-serif'; x.fillStyle = '#555'; x.textAlign = 'center';
+  x.fillText('成績等第　O 傑出　E 超乎期待　A 合格　P 差　D 糟糕', W / 2, H - 96);
   x.fillText(`第 ${n} 頁／共 2 頁`, W / 2, H - 60);
   return c;
 }
@@ -794,7 +795,7 @@ function synthPhoto(doc, quad, PW, PH) {
   return c;
 }
 async function loadSamples() {
-  try { await document.fonts.ready; await document.fonts.load('16px "Noto Sans TC"', '範例大學歷年成績單'); } catch {}
+  try { await document.fonts.ready; await document.fonts.load('16px "Noto Sans TC"', '霍格華茲魔法與巫術學院歷年成績單普通等級測驗'); } catch {}
   const quads = [
     [[168, 196], [866, 150], [952, 1196], [110, 1262]],
     [[230, 168], [902, 236], [868, 1270], [128, 1214]],
