@@ -82,7 +82,7 @@ Flatten phone photos of documents into scan-like pages, or convert photos to PDF
 | [pdf-lib](https://github.com/Hopding/pdf-lib) by Andrew Dillon | 讀取與合併 PDF | MIT |
 | [IBM Plex](https://github.com/IBM/plex) | 介面字型 | SIL Open Font License 1.1 |
 | [Noto Sans TC](https://fonts.google.com/noto/specimen/Noto+Sans+TC) | 中文字型 | SIL Open Font License 1.1 |
-| [GoatCounter](https://github.com/arp242/goatcounter) | 匿名使用統計 | EUPL 1.2 |
+| [GoatCounter](https://github.com/arp242/goatcounter) | 匿名使用統計（僅載入其服務的 script，未散布其程式碼） | EUPL 1.2（作者略作修改的版本） |
 
 **技術參考**
 
