@@ -54,10 +54,11 @@ Flatten phone photos of documents into scan-like pages, or convert photos to PDF
 
 ## 隱私與安全
 
-- 照片和 PDF 只在你的瀏覽器記憶體中處理，關掉分頁就消失；本工具沒有伺服器、不使用 cookie、不做任何追蹤或分析。
-- 頁面會向外部載入兩項資源：
+- 照片和 PDF 只在你的瀏覽器記憶體中處理，關掉分頁就消失；本工具沒有伺服器，**你的檔案內容永遠不會被傳送到任何地方**。
+- **匿名使用統計**：線上版使用 [GoatCounter](https://www.goatcounter.com/) 計算瀏覽次數，以及「匯出 PDF」「下載單頁 JPG」的次數。不使用 cookie，不記錄個人資料或 IP；GoatCounter 只會收到頁面網址、來源網站、瀏覽器類型、螢幕尺寸與大致國家。在本機直接開啟 `index.html` 時不會計數。
+- 頁面會向外部載入三項資源：
   - **Google Fonts**（IBM Plex Sans／Mono、Noto Sans TC）：Google 會看到你的 IP 與瀏覽器資訊，但不會收到你的檔案。離線時會退回系統字型，功能不受影響。
-  - **pdf-lib 1.17.1**（cdnjs）：以 [Subresource Integrity](https://developer.mozilla.org/docs/Web/Security/Subresource_Integrity) 雜湊鎖定版本，CDN 上的檔案若被竄改，瀏覽器會拒絕執行。
+  - **pdf-lib 1.17.1**（cdnjs）與 **GoatCounter count.v4.js**：皆以 [Subresource Integrity](https://developer.mozilla.org/docs/Web/Security/Subresource_Integrity) 雜湊鎖定版本，CDN 上的檔案若被竄改，瀏覽器會拒絕執行。
 - 想完全離線使用，可以把 pdf-lib 下載到本機並改成相對路徑；沒有 pdf-lib 時，照片轉 PDF 仍可運作（內建簡易 PDF 產生器），只有「PDF 輸入」功能無法使用。
 
 ---
@@ -81,6 +82,7 @@ Flatten phone photos of documents into scan-like pages, or convert photos to PDF
 | [pdf-lib](https://github.com/Hopding/pdf-lib) by Andrew Dillon | 讀取與合併 PDF | MIT |
 | [IBM Plex](https://github.com/IBM/plex) | 介面字型 | SIL Open Font License 1.1 |
 | [Noto Sans TC](https://fonts.google.com/noto/specimen/Noto+Sans+TC) | 中文字型 | SIL Open Font License 1.1 |
+| [GoatCounter](https://github.com/arp242/goatcounter) | 匿名使用統計 | EUPL 1.2 |
 
 **技術參考**
 

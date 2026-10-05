@@ -139,6 +139,9 @@
            align-items:center; box-shadow:0 4px 18px rgba(0,0,0,.25); max-width:calc(100% - 32px); z-index:10; }
   #toast button { background:none; border:0; color:var(--accent-soft); font-weight:600; cursor:pointer; padding:0; }
 </style>
+<!-- anonymous, cookie-free usage counts (GoatCounter); skips file:// and localhost. File contents are never sent. -->
+<script data-goatcounter="https://ch3nyt.goatcounter.com/count" async src="https://gc.zgo.at/count.v4.js"
+        integrity="sha384-nRw6qfbWyJha9LhsOtSb2YJDyZdKvvCFh0fJYlkquSFjUxp9FVNugbfy8q1jdxI+" crossorigin="anonymous"></script>
 </head>
 <body>
 
@@ -793,6 +796,10 @@ $('del').onclick = () => {
 };
 
 // ---------- saving ----------
+// count an action (never its content); a no-op when GoatCounter isn't loaded
+function track(path, title) {
+  try { window.goatcounter && window.goatcounter.count && window.goatcounter.count({ path, title, event: true }); } catch {}
+}
 async function offer(filename, blob) {
   if (window.claude && window.claude.use) {  // published artifact: the viewer confirms each save
     const dl = await window.claude.use('downloads');
@@ -804,7 +811,7 @@ async function offer(filename, blob) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
-$('dlPage').onclick = () => { const p = pages[cur]; p && p.out && offer(`page-${cur + 1}.jpg`, p.out); };
+$('dlPage').onclick = () => { const p = pages[cur]; if (p && p.out) { track('export-jpg', '下載單頁 JPG'); offer(`page-${cur + 1}.jpg`, p.out); } };
 
 // one PDF page per corrected photo; page width is A4 (595.28 pt, landscape 841.89), height follows the image
 async function buildPdf(list) {
@@ -852,7 +859,11 @@ $('exportPdf').onclick = async () => {
   btn.textContent = '合併中…';
   try {
     if (list.some(p => p.kind === 'pdf') && !window.PDFLib) toast('PDF 元件沒有載入，無法合併 PDF 檔');
-    else await offer(name, window.PDFLib ? await buildPdfLib(list) : await buildPdf(list));
+    else {
+      const blob = window.PDFLib ? await buildPdfLib(list) : await buildPdf(list);
+      track('export-pdf', '匯出 PDF');
+      await offer(name, blob);
+    }
   } catch (e) { toast('匯出失敗：' + ((e && e.message) || e)); }
   finally { btn.textContent = '匯出 PDF'; renderTray(); }
 };
