@@ -65,6 +65,8 @@
   .chip.sample { color:var(--sample); background:var(--sample-bg); }
   .chip.asis { color:var(--muted); background:var(--sunken); }
   .chip.pdf { color:var(--pdf); background:var(--pdf-bg); }
+  .chip.busy { color:var(--accent); background:var(--accent-soft); }
+  .busymsg { color:#C5CDD6; text-align:center; padding:48px 16px; font-size:15px; }
   .pdfcard { color:#E5E9EE; text-align:center; display:grid; gap:10px; justify-items:center; padding:40px 16px; max-width:46ch; }
   .pdfcard strong { font:600 17px var(--sans); word-break:break-all; }
   .pdfcard span { color:#AEB8C3; font-size:14px; }
@@ -164,6 +166,7 @@
       <img id="resultImg" alt="校正後的頁面" hidden>
       <canvas id="loupe" width="120" height="120" hidden></canvas>
       <div class="pdfcard" id="pdfCard" hidden></div>
+      <div class="busymsg" id="busyMsg" hidden>這頁正在背景處理，完成後會自動顯示</div>
       <div class="drop" id="dropMsg" hidden>
         <strong>放入文件照片</strong>
         <span>照片或 PDF 都可以，可一次選多個；也可以直接拖進這裡</span>
@@ -234,10 +237,10 @@ const MAX_OUT = 3508;              // long side cap for "auto" (A4 at 300 dpi)
 const MAX_SRC_PIXELS = 16e6;       // iOS Safari canvas area limit
 const PAPER = { a4p: [2480, 3508], a4l: [3508, 2480], letter: [2550, 3300] };  // 300 dpi
 
-// photo item: {id, file, rot, pts, done, asis, out, outW, outH, thumb, sample}
+// photo item: {id, file, rot, pts, done, busy, job, jobId, asis, out, outW, outH, thumb, sample}
 // pdf item:   {id, kind:'pdf', name, bytes, pageCount, signed, done:true}
 const pages = [];
-let cur = -1, mode = 'empty';      // 'edit' | 'result' | 'empty'
+let cur = -1, mode = 'empty';      // 'edit' | 'result' | 'pdf' | 'busy' | 'empty'
 let src = null, scale = 1, drag = -1, openToken = 0, resultURL = null, nextId = 1;
 const view = $('view'), vctx = view.getContext('2d'), loupe = $('loupe'), lctx = loupe.getContext('2d');
 
@@ -301,10 +304,9 @@ function homography(from, to) {
   }
   return [...M.map((r, i) => r[n] / r[i]), 1];
 }
-// for every output pixel, sample the source (bilinear) at H·(x,y)
-function warp(srcC, quad, W, H) {
+// for every output pixel, sample the source pixels s (bilinear) at H·(x,y)
+function warpData(s, sw, sh, quad, W, H) {
   const Hm = homography([[0, 0], [W, 0], [W, H], [0, H]], quad);
-  const sw = srcC.width, sh = srcC.height, s = srcC.getContext('2d').getImageData(0, 0, sw, sh).data;
   const out = new ImageData(W, H), d = out.data;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const z = Hm[6] * x + Hm[7] * y + Hm[8];
@@ -336,39 +338,153 @@ function boxBlur(ch, W, H, r) {
       o[y * W + x] = (I[y1 * (W + 1) + x1] - I[y0 * (W + 1) + x1] - I[y1 * (W + 1) + x0] + I[y0 * (W + 1) + x0]) / ((y1 - y0) * (x1 - x0)); } }
   return o;
 }
-// dividing by the blurred page flattens shadows and uneven light
+// Dividing by the page background flattens shadows and uneven light. Paper brightness varies slowly,
+// so the background is estimated on a copy shrunk by f, blurred, then interpolated back per pixel.
+// Everything after the shrink happens in one pass over the pixels.
 function applyFilter(im, mode) {
   if (mode === 'none') return im;
-  const { width: W, height: H, data: d } = im, N = W * H, r = Math.max(8, Math.round(Math.max(W, H) / 30));
-  const level = v => 255 * Math.min(1, Math.max(0, (Math.min(1, v) - 0.35) / 0.55));
-  if (mode === 'scan') {
-    for (let c = 0; c < 3; c++) {
-      const ch = new Float32Array(N); for (let i = 0; i < N; i++) ch[i] = d[i * 4 + c];
-      const bg = boxBlur(ch, W, H, r);
-      for (let i = 0; i < N; i++) d[i * 4 + c] = level(ch[i] / Math.max(1, bg[i]) * 0.97);
+  const { width: W, height: H, data: d } = im, r = Math.max(8, Math.round(Math.max(W, H) / 30));
+  const C = mode === 'scan' ? 3 : 1;  // gray and bw work on luminance
+  const f = Math.max(1, Math.min(Math.floor(r / 6), Math.floor(W / 2), Math.floor(H / 2)));
+  const w = Math.ceil(W / f), h = Math.ceil(H / f);
+  const xs = new Int32Array(W); for (let x = 0; x < W; x++) xs[x] = (x / f) | 0;
+
+  // 1. shrink: average each f×f cell
+  const small = []; for (let c = 0; c < C; c++) small.push(new Float32Array(w * h));
+  for (let y = 0; y < H; y++) {
+    const row = ((y / f) | 0) * w, o = y * W * 4;
+    if (C === 3) {
+      const s0 = small[0], s1 = small[1], s2 = small[2];
+      for (let x = 0; x < W; x++) { const k = row + xs[x], i = o + x * 4; s0[k] += d[i]; s1[k] += d[i + 1]; s2[k] += d[i + 2]; }
+    } else {
+      const s0 = small[0];
+      for (let x = 0; x < W; x++) { const i = o + x * 4; s0[row + xs[x]] += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; }
     }
-    return im;
   }
-  const g = new Float32Array(N);
-  for (let i = 0; i < N; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
-  const bg = boxBlur(g, W, H, r);
-  for (let i = 0; i < N; i++) {
-    const v = g[i] / Math.max(1, bg[i]);
-    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = mode === 'bw' ? (v < 0.82 ? 0 : 255) : level(v * 0.97);
+  const bg = small.map(sm => {
+    for (let sy = 0; sy < h; sy++) for (let sx = 0; sx < w; sx++) sm[sy * w + sx] /= Math.min(f, W - sx * f) * Math.min(f, H - sy * f);
+    return boxBlur(sm, w, h, Math.max(1, Math.round(r / f)));
+  });
+
+  // 2. per output row: interpolate the background vertically once, then horizontally per pixel
+  const xi = new Int32Array(W), xt = new Float32Array(W);
+  for (let x = 0; x < W; x++) { const fx = Math.min(w - 1, Math.max(0, (x + 0.5) / f - 0.5)); xi[x] = Math.min(w - 2, fx | 0); xt[x] = fx - xi[x]; }
+  const rows = bg.map(() => new Float32Array(w));
+  for (let y = 0; y < H; y++) {
+    const fy = Math.min(h - 1, Math.max(0, (y + 0.5) / f - 0.5)), y0 = Math.min(h - 2, fy | 0), ty = fy - y0, r0 = y0 * w, r1 = r0 + w;
+    for (let c = 0; c < C; c++) { const b = bg[c], rb = rows[c]; for (let sx = 0; sx < w; sx++) rb[sx] = b[r0 + sx] + (b[r1 + sx] - b[r0 + sx]) * ty; }
+    const o = y * W * 4;
+    if (C === 3) {
+      const ra = rows[0], rg = rows[1], rbl = rows[2];
+      for (let x = 0; x < W; x++) {
+        const k = xi[x], t = xt[x], i = o + x * 4;
+        // (v·0.97 − 0.35) / 0.55 · 255; Uint8ClampedArray clamps to 0–255
+        d[i] = (d[i] / Math.max(1, ra[k] + (ra[k + 1] - ra[k]) * t) * 0.97 - 0.35) * 463.64;
+        d[i + 1] = (d[i + 1] / Math.max(1, rg[k] + (rg[k + 1] - rg[k]) * t) * 0.97 - 0.35) * 463.64;
+        d[i + 2] = (d[i + 2] / Math.max(1, rbl[k] + (rbl[k + 1] - rbl[k]) * t) * 0.97 - 0.35) * 463.64;
+      }
+    } else {
+      const rl = rows[0], bw = mode === 'bw';
+      for (let x = 0; x < W; x++) {
+        const k = xi[x], i = o + x * 4;
+        const v = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / Math.max(1, rl[k] + (rl[k + 1] - rl[k]) * xt[x]);
+        d[i] = d[i + 1] = d[i + 2] = bw ? (v < 0.82 ? 0 : 255) : (v * 0.97 - 0.35) * 463.64;
+      }
+    }
   }
   return im;
 }
 
-async function processPage(p, srcC) {
-  const [W, H] = outputSize(p.pts);
-  const im = applyFilter(warp(srcC, p.pts, W, H), $('filter').value);
-  const oc = canvas(W, H); oc.getContext('2d').putImageData(im, 0, 0);
-  p.out = await toBlob(oc, 'image/jpeg', 0.9); p.outW = W; p.outH = H; p.thumb = thumbOf(oc); p.done = true; p.asis = false;
+// ---------- background processing ----------
+// The heavy work (warp, filter, JPEG encode) runs in a Web Worker so the page never freezes and the
+// user can move on to the next photo at once. Without OffscreenCanvas or workers it runs on the main thread.
+function workerMain() {
+  self.onmessage = async e => {
+    const { id, kind, bmp, quad, W, H, filter } = e.data;
+    try {
+      let oc;
+      if (kind === 'warp') {
+        const c = new OffscreenCanvas(bmp.width, bmp.height), x = c.getContext('2d');
+        x.drawImage(bmp, 0, 0); bmp.close();
+        const im = applyFilter(warpData(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, quad, W, H), filter);
+        oc = new OffscreenCanvas(W, H); oc.getContext('2d').putImageData(im, 0, 0);
+      } else {  // asis: just encode the photo
+        oc = new OffscreenCanvas(bmp.width, bmp.height); oc.getContext('2d').drawImage(bmp, 0, 0); bmp.close();
+      }
+      const out = await oc.convertToBlob({ type: 'image/jpeg', quality: kind === 'warp' ? 0.9 : 0.92 });
+      const k = 240 / Math.max(oc.width, oc.height), t = new OffscreenCanvas(Math.round(oc.width * k), Math.round(oc.height * k));
+      t.getContext('2d').drawImage(oc, 0, 0, t.width, t.height);
+      const thumb = await t.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
+      self.postMessage({ id, out, thumb, W: oc.width, H: oc.height });
+    } catch (err) { self.postMessage({ id, error: String((err && err.message) || err) }); }
+  };
 }
-// "不調整": the whole photo, no crop, no filter
-async function makeAsis(p, srcC) {
-  p.out = await toBlob(srcC, 'image/jpeg', 0.92); p.outW = srcC.width; p.outH = srcC.height; p.thumb = thumbOf(srcC); p.done = true; p.asis = true;
+let worker = null, jobSeq = 0;
+const waiting = new Map();
+function getWorker() {
+  if (worker !== null) return worker;
+  try {
+    if (typeof OffscreenCanvas === 'undefined' || !OffscreenCanvas.prototype.convertToBlob) throw new Error('no OffscreenCanvas');
+    const code = [homography, warpData, boxBlur, applyFilter].map(String).join('\n') + '\n(' + workerMain + ')();';
+    worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+    worker.onmessage = e => {
+      const j = waiting.get(e.data.id); waiting.delete(e.data.id);
+      if (j) e.data.error ? j.reject(new Error(e.data.error)) : j.resolve(e.data);
+    };
+    worker.onerror = () => { worker = false; waiting.forEach(j => j.reject(new Error('worker failed'))); waiting.clear(); };
+  } catch { worker = false; }
+  return worker;
 }
+async function workerJob(kind, srcC, quad, W, H, filter) {
+  const w = getWorker(); if (!w) throw new Error('no worker');
+  let bmp;
+  if (kind === 'warp') {  // only send the part of the photo the page covers
+    const xs = quad.map(q => q[0]), ys = quad.map(q => q[1]);
+    const x0 = Math.max(0, Math.floor(Math.min(...xs)) - 2), y0 = Math.max(0, Math.floor(Math.min(...ys)) - 2);
+    const x1 = Math.min(srcC.width, Math.ceil(Math.max(...xs)) + 2), y1 = Math.min(srcC.height, Math.ceil(Math.max(...ys)) + 2);
+    bmp = await createImageBitmap(srcC, x0, y0, x1 - x0, y1 - y0);
+    quad = quad.map(([x, y]) => [x - x0, y - y0]);
+  } else bmp = await createImageBitmap(srcC);
+  const res = await new Promise((resolve, reject) => {
+    const id = ++jobSeq; waiting.set(id, { resolve, reject });
+    w.postMessage({ id, kind, bmp, quad, W, H, filter }, [bmp]);
+  });
+  return { out: res.out, W: res.W, H: res.H, thumb: URL.createObjectURL(res.thumb) };
+}
+async function mainJob(kind, srcC, quad, W, H, filter) {
+  let oc = srcC;
+  if (kind === 'warp') {
+    const im = applyFilter(warpData(srcC.getContext('2d').getImageData(0, 0, srcC.width, srcC.height).data, srcC.width, srcC.height, quad, W, H), filter);
+    oc = canvas(W, H); oc.getContext('2d').putImageData(im, 0, 0);
+  }
+  return { out: await toBlob(oc, 'image/jpeg', kind === 'warp' ? 0.9 : 0.92), W: oc.width, H: oc.height, thumb: thumbOf(oc) };
+}
+// kind: 'warp' (拉正) or 'asis' (不調整). Settings are read now, so later changes don't leak into this job.
+function startJob(p, srcC, kind) {
+  const my = p.jobId = (p.jobId || 0) + 1;
+  const quad = p.pts.map(q => [...q]), filter = $('filter').value;
+  const [W, H] = kind === 'warp' ? outputSize(quad) : [srcC.width, srcC.height];
+  p.busy = true; p.done = false;
+  p.job = (async () => {
+    let res;
+    try { res = await workerJob(kind, srcC, quad, W, H, filter); }
+    catch { await nextFrame(); res = await mainJob(kind, srcC, quad, W, H, filter); }
+    if (p.jobId !== my) return;  // superseded by 調整四角 / rotate
+    if (p.thumb && p.thumb.startsWith('blob:')) URL.revokeObjectURL(p.thumb);
+    Object.assign(p, { out: res.out, outW: res.W, outH: res.H, thumb: res.thumb, asis: kind === 'asis', done: true, busy: false });
+  })().catch(e => {
+    if (p.jobId === my) { p.busy = false; toast('處理失敗：' + ((e && e.message) || e)); }
+  }).finally(() => {
+    if (p.jobId !== my) return;
+    renderTray();
+    if (pages[cur] === p && mode === 'busy') { p.done ? showResult(p) : openEditor(p); }
+    if (pages.length && pages.every(q => q.done)) toast('全部都處理好了，可以匯出 PDF');
+  });
+  renderTray();
+  return p.job;
+}
+// a newer edit cancels any running job's result for this page
+const invalidate = p => { p.jobId = (p.jobId || 0) + 1; p.busy = false; p.done = false; };
 async function readPdf(f) {
   if (!window.PDFLib) { toast('PDF 元件沒有載入，暫時無法加入 PDF'); return null; }
   const bytes = new Uint8Array(await f.arrayBuffer());
@@ -405,6 +521,7 @@ async function addFiles(files) {
 }
 
 const status = p => p.kind === 'pdf' ? { cls: 'pdf', text: 'PDF' }
+  : p.busy ? { cls: 'busy', text: '處理中' }
   : p.done ? (p.asis ? { cls: 'asis', text: '原樣' } : { cls: 'done', text: '已校正' })
   : p.sample ? { cls: 'sample', text: '範例' } : { cls: 'pending', text: '待校正' };
 
@@ -427,17 +544,17 @@ function renderTray() {
   const add = document.createElement('button'); add.className = 'add'; add.innerHTML = '<b>+</b>加入照片或 PDF';
   add.onclick = () => $('file').click(); strip.appendChild(add);
 
-  const done = pages.filter(p => p.done).length, pend = pages.length - done;
-  const total = pages.filter(p => p.done).reduce((n, p) => n + outPages(p), 0);
-  $('trayInfo').textContent = pages.length ? `${pages.length} 項 · 已就緒 ${done} 項 · 待處理 ${pend} 項` : '';
+  const done = pages.filter(p => p.done).length, busy = pages.filter(p => p.busy).length, pend = pages.length - done - busy;
+  const total = pages.filter(p => p.done || p.busy).reduce((n, p) => n + outPages(p), 0);
+  $('trayInfo').textContent = pages.length ? `${pages.length} 項 · 已就緒 ${done} 項` + (busy ? ` · 處理中 ${busy} 項` : '') + ` · 待處理 ${pend} 項` : '';
   $('count').firstChild.textContent = total;
-  $('exportPdf').disabled = !done;
+  $('exportPdf').disabled = !(done || busy);
   const w = $('warn');
-  if (pend && done) {
+  if (pend && (done || busy)) {
     w.hidden = false; w.innerHTML = '';
     w.append(`還有 ${pend} 張照片沒處理，不會放進 PDF。`);
     const j = document.createElement('button'); j.textContent = '前往下一張';
-    j.onclick = () => openPage(pages.findIndex(p => !p.done));
+    j.onclick = () => openPage(pages.findIndex(p => !p.done && !p.busy));
     const k = document.createElement('button'); k.textContent = '其餘全部不調整';
     k.onclick = asisRest; w.append(j, '·', k);
   } else w.hidden = true;
@@ -456,12 +573,12 @@ function renderHead() {
 
 function setMode(m) {
   mode = m;
-  view.hidden = m !== 'edit'; $('resultImg').hidden = m !== 'result'; $('dropMsg').hidden = m !== 'empty'; $('pdfCard').hidden = m !== 'pdf';
+  view.hidden = m !== 'edit'; $('resultImg').hidden = m !== 'result'; $('dropMsg').hidden = m !== 'empty'; $('pdfCard').hidden = m !== 'pdf'; $('busyMsg').hidden = m !== 'busy';
   $('go').hidden = $('resetPts').hidden = $('asis').hidden = m !== 'edit';
   $('redo').hidden = $('dlPage').hidden = m !== 'result';
   const p = pages[cur];
   if (m === 'edit') {
-    $('go').textContent = pages.some((q, i) => i !== cur && !q.done) ? '拉正，下一頁' : '拉正';
+    $('go').textContent = pages.some((q, i) => i !== cur && !q.done && !q.busy) ? '拉正，下一頁' : '拉正';
     $('hint').textContent = '拖曳四個藍點對準紙張四角：TL 左上、TR 右上、BR 右下、BL 左下。拖曳時會出現放大鏡。';
     $('dims').textContent = '';
   } else if (m === 'result') {
@@ -477,7 +594,8 @@ async function openPage(i) {
   if (i < 0 || i >= pages.length) { cur = -1; src = null; setMode('empty'); renderTray(); return; }
   cur = i; renderTray();
   const p = pages[i];
-  if (p.kind === 'pdf') showPdf(p); else if (p.done) showResult(p); else await openEditor(p);
+  if (p.kind === 'pdf') showPdf(p); else if (p.busy) { openToken++; src = null; setMode('busy'); }
+  else if (p.done) showResult(p); else await openEditor(p);
 }
 function showPdf(p) {
   openToken++; src = null;
@@ -566,37 +684,34 @@ function showLoupe(e) {
 
 // ---------- actions ----------
 // shared by 拉正 and 不調整: process this photo, then jump to the next unprocessed one
-async function finish(btn, work, doneMsg) {
+function finish(kind) {
   const p = pages[cur]; if (!src || !p) return;
-  const label = btn.innerHTML; btn.disabled = true; btn.textContent = '處理中…';
-  await nextFrame();
-  await work(p, src);
-  btn.disabled = false; btn.innerHTML = label;
-  const next = [...pages.keys()].map(k => (cur + 1 + k) % pages.length).find(k => !pages[k].done);
-  if (next === undefined) { renderTray(); showResult(p); toast('全部都處理好了，可以匯出 PDF'); }
-  else { toast(`第 ${cur + 1} 項${doneMsg}`); openPage(next); }
+  startJob(p, src, kind);
+  const next = [...pages.keys()].map(k => (cur + 1 + k) % pages.length).find(k => !pages[k].done && !pages[k].busy);
+  if (next === undefined) { openToken++; src = null; setMode('busy'); }
+  else openPage(next);
 }
-$('go').onclick = () => finish($('go'), processPage, '已校正');
-$('asis').onclick = () => finish($('asis'), makeAsis, '設為不調整');
+$('go').onclick = () => finish('warp');
+$('asis').onclick = () => finish('asis');
 async function asisRest() {
-  const rest = pages.filter(p => p.kind !== 'pdf' && !p.done);
-  for (const p of rest) { await makeAsis(p, await decode(p)); renderTray(); }
-  toast(`${rest.length} 張照片設為不調整`);
+  const rest = pages.filter(p => p.kind !== 'pdf' && !p.done && !p.busy);
+  for (const p of rest) startJob(p, await decode(p), 'asis');
+  toast(`${rest.length} 張照片設為不調整，背景處理中`);
   openPage(cur >= 0 ? cur : 0);
 }
-$('redo').onclick = () => { const p = pages[cur]; p.done = false; renderTray(); openEditor(p); };
+$('redo').onclick = () => { const p = pages[cur]; invalidate(p); renderTray(); openEditor(p); };
 $('resetPts').onclick = () => { if (src) { pages[cur].pts = defaultPts(src.width, src.height); draw(); } };
 
 async function rotate(cw) {
   const p = pages[cur]; if (!p || p.kind === 'pdf') return;
-  if (mode !== 'edit') { p.done = false; await openEditor(p); }
+  if (mode !== 'edit') { invalidate(p); await openEditor(p); }
   if (!src) return;
   const W = src.width, H = src.height, c = canvas(H, W), x = c.getContext('2d');
   if (cw) { x.translate(H, 0); x.rotate(Math.PI / 2); } else { x.translate(0, W); x.rotate(-Math.PI / 2); }
   x.drawImage(src, 0, 0);
   const m = p.pts.map(([px, py]) => cw ? [H - py, px] : [py, W - px]);
   p.pts = cw ? [m[3], m[0], m[1], m[2]] : [m[1], m[2], m[3], m[0]];  // keep TL/TR/BR/BL as seen on screen
-  p.rot = (p.rot + (cw ? 1 : 3)) % 4; p.done = false; p.thumb = thumbOf(c);
+  p.rot = (p.rot + (cw ? 1 : 3)) % 4; invalidate(p); p.thumb = thumbOf(c);
   src = c; fitView(c);
   renderTray(); setMode('edit'); draw();
 }
@@ -729,9 +844,12 @@ async function buildPdfLib(list) {
   return new Blob([await doc.save()], { type: 'application/pdf' });
 }
 $('exportPdf').onclick = async () => {
-  const list = pages.filter(p => p.done); if (!list.length) return;
   let name = $('fname').value.trim() || 'scan.pdf'; if (!/\.pdf$/i.test(name)) name += '.pdf';
-  const btn = $('exportPdf'); btn.disabled = true; btn.textContent = '合併中…';
+  const btn = $('exportPdf'); btn.disabled = true;
+  const running = pages.filter(p => p.busy);
+  if (running.length) { btn.textContent = `等待 ${running.length} 頁處理完成…`; await Promise.allSettled(running.map(p => p.job)); }
+  const list = pages.filter(p => p.done); if (!list.length) { btn.textContent = '匯出 PDF'; renderTray(); return; }
+  btn.textContent = '合併中…';
   try {
     if (list.some(p => p.kind === 'pdf') && !window.PDFLib) toast('PDF 元件沒有載入，無法合併 PDF 檔');
     else await offer(name, window.PDFLib ? await buildPdfLib(list) : await buildPdf(list));
@@ -805,7 +923,7 @@ async function loadSamples() {
     if (pages.some(p => !p.sample)) return;  // the user already added photos
     const photo = synthPhoto(drawSampleDoc(i + 1), quads[i], 1050, 1400);
     const p = { id: nextId++, file: await toBlob(photo, 'image/jpeg', 0.9), rot: 0, pts: quads[i].map(q => [...q]), done: false, sample: true, thumb: thumbOf(photo) };
-    if (i === 0) await processPage(p, photo);
+    if (i === 0) await startJob(p, photo, 'warp');
     pages.push(p);
   }
   openPage(1);
