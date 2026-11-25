@@ -9,6 +9,8 @@ Flatten phone photos of documents into scan-like pages, or convert photos to PDF
 
 整個工具是單一檔案 `index.html`，沒有後端、不需要安裝。
 
+**How it works.** A single `index.html` with no backend. The four corners you pin define a perspective transform that maps the page onto an A4 or Letter canvas; flattening and JPEG encoding run in a Web Worker so the UI stays responsive. Existing PDFs are merged with [pdf-lib](https://pdf-lib.js.org/) by copying their pages directly, so their text stays sharp and selectable instead of being turned into images. Page views and export counts are tracked anonymously with GoatCounter; file contents are never sent anywhere.
+
 ---
 
 ## 使用方式
